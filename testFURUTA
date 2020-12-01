@@ -1,0 +1,102 @@
+import Pkg
+
+packages = [ "Plots", "ProgressBars", "Optim"]
+Pkg.add(packages)
+
+Pkg.add(path="/opt/julia/local/packages/MobergIO")
+
+----------------------------------------------------------------------------------------------------------------
+
+
+push!(LOAD_PATH, pwd())
+using FurutaProcess
+using Plots
+
+function better_swingup()
+    n = 2.1;
+    g = 9.81;
+    k = 10;
+    Eo = 0;
+    m = 0.0054;
+    l = 0.06;
+    J = 0.000154;
+    u = 0;
+    sleeptime = 0.005;
+    sat_limit = 0.012;
+    phi, dphidt, theta, dthetadt = get_x()
+    sleep(0.2)
+    enable!()
+    interval_start = time()
+    while((theta*180/pi < 170 || theta*180/pi > 190) && time() - interval_start < 6.0 )
+    #while( time() - interval_start < 5 )
+        #println(u, "    ", abs(dthetadt), "   ", time() - interval_start, "    ", theta*180/pi)
+        phi, dphidt, theta, dthetadt = get_x()
+        E = 1/2*J*dthetadt^2+m*g*l*(cos(theta) - 1);
+        u = n*g*(E-Eo)*dthetadt*cos(theta);
+        if(abs(u) < 0.00665)
+            set_torque!(0.011)
+        elseif(u > sat_limit)
+            set_torque!(sat_limit)
+        elseif(u < -sat_limit)
+            set_torque!(-sat_limit)
+        else
+            set_torque!(u)
+        end
+        sleep(sleeptime)
+    end
+    @show abs(dthetadt)
+    println(theta*180/pi)
+    print(" done")
+end
+
+---------------------------------------------------------------------------------------------------------------------
+
+push!(LOAD_PATH, pwd())
+using FurutaProcess
+using Plots
+
+function lqr()
+    sleep_time = 0.019
+    #K = [0.3161 3.161 0.316 -0.31; 0.0098 0.098 -9.99 9.99] #with u = u/2000 sleeptime 0.01 kx1 - kx2
+    # alt2 [0.03161 3.161 0.316+pi 0.31; 0.0098 0.098 -9.99+pi 9.99] u/2200
+    #K = [0.03161 3.161 0.316+pi 0.31; 0.0098 0.098 -9.99+pi 9.99]
+    #K = [0 -4.53 150.5 -10.9]
+   #K = [-0.0006 -0.65 80.819 -0.040]
+    K = [0 -7.161 25.316 5.31]
+    #K = [0.0003 -1.428 -4.348 1.034]
+    start_time = time()
+    limit = 0.2
+    div = 1900
+    while(time() - start_time < 10.0)
+        k_start = time()
+        phi, dphidt, theta, dthetadt = get_x()
+        #theta += pi
+        #if(theta < 2*pi && theta > pi)
+        #    theta = 2*pi - theta
+        #elseif(theta > 2*pi)
+        #    theta -= 2*pi
+        #    theta = -theta
+        #end
+        X = [phi; dphidt; theta; dthetadt]
+        kx = K*X
+        u = -kx[1]
+        @show u/div, theta*180/pi, kx
+        u = u/div
+        if(u > limit) #If too big
+            set_torque!(-limit)
+        elseif(u < -limit) #if too small
+            set_torque!(limit)
+        else #perfect
+            set_torque!(-u)
+        end
+        k_now = time() - k_start
+        while(k_now < sleep_time)
+            sleep(sleep_time - k_now)
+            k_now = time() - k_start
+        end
+        test_end = time()
+    end
+    disable!()
+end
+better_swingup()
+lqr()
